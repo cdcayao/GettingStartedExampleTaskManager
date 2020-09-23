@@ -72,6 +72,23 @@ class TaskPlanner():
             name = self.project_names[project_idx]
             self.cmdr.SetInterruptBehavior(self.replan_attempts,self.timeout,project_name=name)
 
+    def AcquireTargets(self, cmdr, project_idx):
+        #x1 = random.uniform(-0.1, -0.5) #
+        x1 = random.uniform(-0.4, -0.6) #
+        #x2 = random.uniform(-0.5, -0.9) #         
+        x2 = random.uniform(-0.4, -0.6) #
+
+        y = random.uniform(0.4, 0.6)
+
+        pose = []
+        
+        if project_idx == 0:
+            pose = [x1, y, 0.05, 0.0,3.14,0.0]
+        elif project_idx == 1:
+            pose = [x1, y, 0.05, 0.0,3.14,0.0]
+
+        return pose
+
     def LaunchPickAndPlace(self, cmdr,workstate, hub, pose, tol, complete_move, complete_move_type,speed,project):
         # Execute this in a thread
         pick_code = 1
@@ -239,47 +256,25 @@ class TaskPlanner():
 
         project_list = list(range(0,len(self.project_info)))
         project_list.reverse()
-        # for project_idx in project_list:
 
-        x1 = random.uniform(-0.4, -0.6)
-        x2 = random.uniform(-0.4, -0.6)
-        y = random.uniform(0.4, 0.6)
+        pose = self.AcquireTargets(self.cmdr, project_idx)
 
-        pose_0 = [x1, y, 0.05, 0.0,3.14,0.0]
-        pose_1 = [x2, y, 0.05, 0.0,3.14,0.0]
         tol = [0.1,0.1,0.1,3.14,3.14,3.14]
 
-        if project_idx == 0:
-            pose = pose_0
-        elif project_idx == 1:
-            pose = pose_1
-
-        self.pick_and_place_part(1, pose_1, tol)
-        self.pick_and_place_part(0, pose_0, tol)
+        self.pick_and_place_part(1, self.AcquireTargets(self.cmdr, 1), tol)
+        self.pick_and_place_part(0, self.AcquireTargets(self.cmdr, 0), tol)
         
         # While both projects haven't finished their cycles
         while True in self.pick_and_place:
 
             for project_idx in range(0,len(self.project_info)):
 
+                pose = self.AcquireTargets(self.cmdr, project_idx)
                 if self.pick_and_place[project_idx]: # If the project isn't finished
                     res = self.threads[project_idx].done() # Check if the PickAndPlace call thread terminated
                     if res:
                         code = self.threads[project_idx].result() # Catch the move result and determine what to do
                         
-                        x1 = random.uniform(-0.4, -0.6)
-                        x2 = random.uniform(-0.4, -0.6)
-                        y = random.uniform(0.4, 0.6)
-
-                        pose_0 = [x1, y, 0.05, 0.0,3.14,0.0]
-                        pose_1 = [x2, y, 0.05, 0.0,3.14,0.0]
-                        tol = [0.1,0.1,0.1,3.14,3.14,3.14]
-
-                        if project_idx == 0:
-                            pose = pose_0
-                        elif project_idx == 1:
-                            pose = pose_1
-
                         if code == self.cmdr.SUCCESS:
                             if not self.interlocking[project_idx]:
                                 # If your previous move was not a retraction, that means you completed a pick and place move
