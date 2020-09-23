@@ -9,13 +9,13 @@ from lib.PythonCommanderHelper import PythonCommanderHelper
 import lib.CommonOperations as cmn_ops 
 
 def LaunchMoveToHub(cmdr,workstate,hub,speed,project):
-    # Execute this in a thread
+    # Execute this in a thread (MoveToHub function call)
     res,seq = cmdr.MoveToHub(workstate,hub,speed,project_name=project)
     code = cmdr.WaitForMove(seq)
     return code
 
 def LaunchMoveToPose(cmdr,workstate, pose, tol, complete_move, complete_move_type,speed,project):
-    # Execute this in a thread
+    # Execute this in a thread (MoveToPose function call)
     res,seq = cmdr.MoveToPose(workstate,pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], tol[0], tol[1], tol[2], tol[3], tol[4], tol[5], complete_move, complete_move_type, speed,project_name=project)
     code = cmdr.WaitForMove(seq)
     return code
@@ -72,11 +72,16 @@ class TaskPlanner():
             name = self.project_names[project_idx]
             self.cmdr.SetInterruptBehavior(self.replan_attempts,self.timeout,project_name=name)
 
-    def AcquireTargets(self, cmdr, project_idx):
-        #x1 = random.uniform(-0.1, -0.5) #
-        x1 = random.uniform(-0.4, -0.6) #
-        #x2 = random.uniform(-0.5, -0.9) #         
-        x2 = random.uniform(-0.4, -0.6) #
+    def AcquireTargets(self, cmdr, project_idx): 
+    #This function provides randomized pick positions
+
+        #use the following x1 and x2 for the full range of pick positions for each robot
+        #x1 = random.uniform(-0.1, -0.5) # specifies the full x-range of the pick positions for the left robot
+        #x2 = random.uniform(-0.5, -0.9) # specifies the full x-range of the pick positions for the right robot        
+
+        #use the following x1 and x2 to work in the range where the robots will work close to each other to test the priority and interlocks
+        x1 = random.uniform(-0.4, -0.6) # specifies the x-range of the pick positions for the left robot
+        x2 = random.uniform(-0.4, -0.6) # specifies the x-range of the pick positions for the right robot
 
         y = random.uniform(0.4, 0.6)
 
@@ -90,7 +95,7 @@ class TaskPlanner():
         return pose
 
     def LaunchPickAndPlace(self, cmdr,workstate, hub, pose, tol, complete_move, complete_move_type,speed,project):
-        # Execute this in a thread
+        # Execute this in a thread (Pick and Place motion sequence)
         pick_code = 1
         pick_code_2 = 1
         place_code = 1
@@ -100,6 +105,7 @@ class TaskPlanner():
         project_info = self.helper.get_project_info(group_info[group]['projects'])
         project_names = group_info[group]['projects']
 
+        #move to a position in the road map close to the pick position using MoveToHub 
         res,seq = cmdr.MoveToPose(workstate,pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], tol[0], tol[1], tol[2], tol[3], tol[4], tol[5], complete_move, complete_move_type, speed,project_name=project)
         pick_code = cmdr.WaitForMove(seq)
         if pick_code != 0:
@@ -110,8 +116,12 @@ class TaskPlanner():
         if pick_code == 0:
             for project_idx in range(0,len(self.project_info)):
                 if project == project_names[project_idx]:
-                    self.retreat_idx = project_idx
+                    if project_idx == 0:
+                        self.retreat_idx = 1
+                    elif project_idx == 1:
+                        self.retreat_idx = 0
 
+            #move off the roadmap to the pick position using BlindMove 
             res, seq = cmdr.BlindMove(workstate, pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], 0, speed, False, project_name=project)
             pick_code_2 = cmdr.WaitForMove(seq) 
             if pick_code_2 != 0:
@@ -122,8 +132,12 @@ class TaskPlanner():
             if pick_code_2 == 0:
                 for project_idx in range(0,len(self.project_info)):
                     if project == project_names[project_idx]:
-                        self.retreat_idx = project_idx
+                        if project_idx == 0:
+                            self.retreat_idx = 1
+                        elif project_idx == 1:
+                            self.retreat_idx = 0
 
+                #move to the place position using MoveToHub
                 res,seq = cmdr.MoveToHub(workstate,hub,speed,project_name=project)
                 place_code = cmdr.WaitForMove(seq)
                 if place_code != 0:
@@ -158,25 +172,6 @@ class TaskPlanner():
             hub = hub_list[hub_idx]
             future = self.executor.submit(LaunchMoveToHub,self.cmdr,workstate,hub,self.speed,project)
             self.threads[project_idx] = future
-            # print(f'Advancing project {self.project_names[project_idx]} to hub {hub}!')
-
-    def pick_part(self,project_idx, pose, tol):
-        project = self.project_names[project_idx]
-        # workstate = self.project_info[project]['workstates'][0]
-        workstate = 'no_part'
-        hub_list = self.hubs[project_idx]
-        hub_idx = self.hub_idxs[project_idx]
-
-        if hub_idx > len(hub_list)-1:
-            self.end_times[project_idx] = time.time()
-            self.pick_and_place[project_idx] = False
-            self.threads[project_idx] = None
-            self.log(f'Project {self.project_names[project_idx]} has finished!')
-        else:
-            hub = hub_list[hub_idx]
-            future = self.executor.submit(LaunchMoveToPose,self.cmdr,workstate,pose,tol,self.complete_move,self.complete_move_type, self.speed,project)
-            self.threads[project_idx] = future
-            # print(f'Advancing project {self.project_names[project_idx]} to hub {hub}!')
 
     def pick_and_place_part(self,project_idx, pose, tol):
         project = self.project_names[project_idx]
@@ -194,7 +189,6 @@ class TaskPlanner():
             hub = hub_list[hub_idx]
             future = self.executor.submit(self.LaunchPickAndPlace,self.cmdr,workstate,hub,pose,tol,self.complete_move,self.complete_move_type, self.speed,project)
             self.threads[project_idx] = future
-            # print(f'Advancing project {self.project_names[project_idx]} to hub {hub}!')
 
     def retract_to_staging(self,project_idx):
         self.log(f'Retracting project {self.project_names[project_idx]} to staging!')
@@ -207,7 +201,7 @@ class TaskPlanner():
 
     def start(self):
         '''
-        Run the hub cycle which is a list of hubs for each robot
+        Execute pick and place cycling around the set place positions in hub_1 and hub_2
         '''
         self.speed = 1.0
         self.complete_move = 0
@@ -251,7 +245,7 @@ class TaskPlanner():
         self.hub_idxs = [0]*len(self.project_info) # current index of the hub list
         self.interlocking = [False]*len(self.project_info) # project idx of the robot that had to retreat
 
-        self.log(f'Beginning hub cycle...')
+        self.log(f'Beginning pick and place task...')
         self.start_time = time.time()
 
         project_list = list(range(0,len(self.project_info)))
@@ -290,11 +284,9 @@ class TaskPlanner():
                             self.pick_and_place_part(project_idx, pose, tol)
                             self.interlocking[project_idx] = False
 
-        self.retract_to_staging(1)
-        self.retract_to_staging(0)        
-
         for project_idx in range(0,len(self.project_info)):
-            hub_time_str = f'{self.project_names[project_idx]} hub cycle took: {self.end_times[project_idx]-self.start_time}'
+            self.retract_to_staging(project_idx)
+            hub_time_str = f'{self.project_names[project_idx]} pick and place task took: {self.end_times[project_idx]-self.start_time}'
             self.log(hub_time_str)        
 
 def main():
