@@ -20,28 +20,6 @@ def LaunchMoveToPose(cmdr,workstate, pose, tol, complete_move, complete_move_typ
     code = cmdr.WaitForMove(seq)
     return code
 
-def LaunchPickAndPlace(cmdr,workstate, hub, pose, tol, complete_move, complete_move_type,speed,project):
-    # Execute this in a thread
-    pick_code = 1
-    place_code = 1
-
-    res,seq = cmdr.MoveToPose(workstate,pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], tol[0], tol[1], tol[2], tol[3], tol[4], tol[5], complete_move, complete_move_type, speed,project_name=project)
-    pick_code = cmdr.WaitForMove(seq)
-    if pick_code != 0:
-        pick_code = 1
-    else:
-        pick_code = 0
-
-    if pick_code == 0:
-        res,seq = cmdr.MoveToHub(workstate,hub,speed,project_name=project)
-        place_code = cmdr.WaitForMove(seq)
-        if place_code != 0:
-            place_code = 1
-        else:
-            place_code = 0
-
-    return pick_code+place_code
-
 class TaskPlanner():
     replan_attempts = 1
     timeout = 0.5
@@ -93,6 +71,50 @@ class TaskPlanner():
         for project_idx in range(0,len(self.project_info)):
             name = self.project_names[project_idx]
             self.cmdr.SetInterruptBehavior(self.replan_attempts,self.timeout,project_name=name)
+
+    def LaunchPickAndPlace(self, cmdr,workstate, hub, pose, tol, complete_move, complete_move_type,speed,project):
+        # Execute this in a thread
+        pick_code = 1
+        pick_code_2 = 1
+        place_code = 1
+
+        group = 'Test'
+        group_info = self.helper.get_group_info()
+        project_info = self.helper.get_project_info(group_info[group]['projects'])
+        project_names = group_info[group]['projects']
+
+        res,seq = cmdr.MoveToPose(workstate,pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], tol[0], tol[1], tol[2], tol[3], tol[4], tol[5], complete_move, complete_move_type, speed,project_name=project)
+        pick_code = cmdr.WaitForMove(seq)
+        if pick_code != 0:
+            pick_code = 1
+        else:
+            pick_code = 0
+        
+        if pick_code == 0:
+            for project_idx in range(0,len(self.project_info)):
+                if project == project_names[project_idx]:
+                    self.retreat_idx = project_idx
+
+            res, seq = cmdr.BlindMove(workstate, pose[0], pose[1], pose[2], pose[3], pose[4], pose[5], 0, speed, False, project_name=project)
+            pick_code_2 = cmdr.WaitForMove(seq) 
+            if pick_code_2 != 0:
+                pick_code_2 = 1
+            else:
+                pick_code_2 = 0
+
+            if pick_code_2 == 0:
+                for project_idx in range(0,len(self.project_info)):
+                    if project == project_names[project_idx]:
+                        self.retreat_idx = project_idx
+
+                res,seq = cmdr.MoveToHub(workstate,hub,speed,project_name=project)
+                place_code = cmdr.WaitForMove(seq)
+                if place_code != 0:
+                    place_code = 1
+                else:
+                    place_code = 0
+
+        return pick_code + pick_code_2 + place_code
 
     def init_logging(self,fp):
         self.fp = fp
@@ -153,7 +175,7 @@ class TaskPlanner():
             self.log(f'Project {self.project_names[project_idx]} has finished!')
         else:
             hub = hub_list[hub_idx]
-            future = self.executor.submit(LaunchPickAndPlace,self.cmdr,workstate,hub,pose,tol,self.complete_move,self.complete_move_type, self.speed,project)
+            future = self.executor.submit(self.LaunchPickAndPlace,self.cmdr,workstate,hub,pose,tol,self.complete_move,self.complete_move_type, self.speed,project)
             self.threads[project_idx] = future
             # print(f'Advancing project {self.project_names[project_idx]} to hub {hub}!')
 
